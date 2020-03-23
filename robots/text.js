@@ -2,10 +2,22 @@ const algorithmia = require('algorithmia')
 const algorithmiaApiKey = require('../credentials/algorithmia.json').apiKey
 const sentenceBoundaryDetection = require('sbd')
 
+const watsonApiKey = require('../credentials/watson-nlu.json').apikey
+
+const NaturalLanguageUndestandngV1 = require('watson-developer-cloud/natural-language-understanding/v1')
+
+const nlu = new NaturalLanguageUndestandngV1({
+  iam_apikey: watsonApiKey,
+  version: '2018-04-05',
+  url: 'https://gateway.watsonplatform.net/natural-language-understanding/api/'
+})
+
 async function robot(content) {
   await fetchContentFromWikipedia(content)
   sanitizeContent(content)
   breakContentIntoSentences(content)
+  limitMaximumSentence(content)
+  await fetchKeywordsOfAllSentences(content)
 
   async function fetchContentFromWikipedia(content) {
     const algorithmiaAutenticated = algorithmia(algorithmiaApiKey)
@@ -36,7 +48,7 @@ async function robot(content) {
     }
 
     function removeDatesInParentheses(text) {
-      return text.replace(/\((?:\([^()]*\)|[^()])*\)/gm, '').replace(/  /g,' ')
+      return text.replace(/\((?:\([^()]*\)|[^()])*\)/gm, '').replace(/  /g, ' ')
     }
   }
 
@@ -49,6 +61,35 @@ async function robot(content) {
         text: sentence,
         keywords: [],
         images: []
+      })
+    })
+  }
+
+  function limitMaximumSentence(content) {
+    content.sentences = content.sentences.slice(0, content.maximumSentences)
+  }
+
+  async function fetchKeywordsOfAllSentences(content) {
+    for (const sentence of content.sentences) {
+      sentence.keywords = await fetchWatsonAndReturnKeywords(sentence.text)
+    }
+  }
+
+  async function fetchWatsonAndReturnKeywords(sentence) {
+    return new Promise((resolve, reject) => {
+      nlu.analyze({
+        text: sentence,
+        features: {
+          keywords: {}
+        }
+      }, (error, res) => {
+        if (error) {
+          throw error
+        }
+        const keywords = res.keywords.map((keyword) => {
+          return keyword.text
+        })
+        resolve(keywords)
       })
     })
   }
